@@ -12,6 +12,7 @@ import plotly.express as px
 import math
 from collections import defaultdict
 
+# preprocessing
 CONVERT_QUOTES = dict( [ (ord(x), ord(y)) for x,y in zip( u"‘’´“”–-",  u"'''\"\"--") ] ) 
 def give_emoji_free_text(text):
     text = text.encode(encoding='utf-8')
@@ -23,12 +24,7 @@ def is_english(s):
         return False
     else:
         return True
-#         doc = nlp(s)
-#         detect_language = doc._.language
-#         if detect_language['language'] != 'en':
-#             return False
-#         else:
-#             return True
+
 def has_shib_doge(s):
     s = s.lower()
     return "shib" in s or "doge" in s
@@ -50,23 +46,20 @@ def preprocess(messages):
     
     clean_messages = []
     clean_dates = []
-    # dirty_messages = []
-    # exceptions = []
     for m, d in tqdm(zip(messages_text, messages_date)):
         if type(m) != str:
-            # exceptions.append(m)
             m = combine_sentence(m)
         m = give_emoji_free_text(m)
         m = m.translate(CONVERT_QUOTES)
         if has_shib_doge(m) and is_english(m):
             clean_messages.append(m)
             clean_dates.append(d)
-        # else:
-            # dirty_messages.append(m)
+ 
     df['text'] = clean_messages
     df['date'] = clean_dates
     return df
 
+# sentiment analysis
 def flair_prediction(nlp, x):
     sentence = Sentence(x)
     nlp.predict(sentence)
@@ -85,8 +78,6 @@ def flair_prediction_value(nlp, x):
     return score.score
 
 def sentiment_analysis(sentiment_nlp, df, out_filename):
-    # df = pd.DataFrame()
-    # df['text'] = clean_messages
     df['sentiment'] = df['text'].apply(lambda x: flair_prediction(sentiment_nlp, x))
     df['score'] = df['text'].apply(lambda x: flair_prediction_value(sentiment_nlp, x))
     df.to_csv(out_filename, header=True, index=True)
@@ -109,29 +100,28 @@ if __name__=="__main__":
         chatroom = json.load(f)
     messages = chatroom['messages']
     
-    # nlp = spacy.load("en_core_web_sm")
-    # def get_lang_detector(nlp, name):
-    #     return LanguageDetector()
-    # Language.factory("language_detector", func=get_lang_detector)
-    # nlp.add_pipe('language_detector', last=True)
     print("Start preprocessing...")
     df = preprocess(messages)
     print("End+++++++++++++")
+
     print("Start sentiment analysis...")
     sentiment_nlp = TextClassifier.load('sentiment-fast')
     out_filename = "messages_sentiment.csv"
     df = sentiment_analysis(sentiment_nlp, df, out_filename)
     print("End++++++++++++++")
 
+    # count messages per day
     count_df = df.groupby(['date']).count()
     count_df = count_df.reset_index()
+    # count pos, neg messages per day
     count_df_posneg = df.groupby(['date', 'sentiment']).count()
 
+    # compute average sentiment per day, 1 for pos 0 for neg
     date_score = defaultdict(int)
     for idx, row in count_df_posneg.reset_index().iterrows():
         if row[1] == 'neg':
             date_score[row[0]] = row[2]
         else:
-            date_score[row[0]] = row[2]/(date_score[row[0]]+row[2])
+            date_score[row[0]] = row[2]/(date_score[row[0]]+row[2]) # num of pos messages / num of all messages
     
     plot(date_score, count_df)
